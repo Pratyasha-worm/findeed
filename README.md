@@ -1,5 +1,9 @@
 # Findeed
 
+**To install:** click the green **Code** button above → **Download ZIP** → unzip it → then follow the steps below.
+
+To add #2: go to your repo → click on README.md → click the pencil (✏️) icon to edit → paste that line right after the # Findeed title → scroll down → click Commit changes.
+
 A Chrome extension that adds a floating panel to any Instagram profile you're viewing: pick how many recent posts to look at, sort them by likes / views / comments / engagement, and search the captions of whatever you're looking at.
 
 Inspired by tools like Zetrr and [RostyslavDzhohola/free-sort-feed-extension](https://github.com/RostyslavDzhohola/free-sort-feed-extension) (a Reels-outlier finder) — this one focuses on caption search across a sortable post list rather than just outlier detection.
