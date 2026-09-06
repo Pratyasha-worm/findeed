@@ -33,9 +33,7 @@
     return null;
   }
 
-  function storageKey(username, count) {
-    return `findeed_${username}_${count}`;
-  }
+
 
   function el(tag, attrs = {}, children = []) {
     const node = document.createElement(tag);
@@ -64,6 +62,7 @@
     const countSelect = el("select", { id: "fnd-count" });
     COUNT_OPTIONS.forEach((c) => {
       const opt = el("option", { value: String(c), text: c === "all" ? "All items" : `Latest ${c}` });
+      if (c === "all") opt.setAttribute("selected", "selected");
       countSelect.appendChild(opt);
     });
     countRow.appendChild(countSelect);
@@ -138,7 +137,7 @@
     toggle.addEventListener("click", () => panel.classList.toggle("fnd-open"));
     search.addEventListener("input", () => renderResults(search.value));
     runBtn.addEventListener("click", () => {
-      if (!indexing) startIndexing(countSelect.value, true);
+      if (!indexing) startIndexing(countSelect.value);
     });
 
     window.fndSetStatus = (text) => { status.textContent = text; };
@@ -207,9 +206,11 @@
       metricParts.push(`${formatCount(item.commentCount)} comments`);
       if (followerCount) metricParts.push(`${engagementRate(item).toFixed(1)}% eng.`);
       wrap.appendChild(el("div", { class: "fnd-result-metric", text: metricParts.join(" · ") }));
-      const textEl = el("div", { class: "fnd-result-text" });
-      textEl.innerHTML = q ? highlight(item.caption, q) : escapeHtml(item.caption);
-      wrap.appendChild(textEl);
+      if (q) {
+        const textEl = el("div", { class: "fnd-result-text" });
+        textEl.innerHTML = highlight(item.caption, q);
+        wrap.appendChild(textEl);
+      }
       a.appendChild(img);
       a.appendChild(wrap);
       results.appendChild(a);
@@ -225,32 +226,6 @@
     const idx = escaped.toLowerCase().indexOf(q.toLowerCase());
     if (idx === -1) return escaped;
     return escaped.slice(0, idx) + "<mark>" + escaped.slice(idx, idx + q.length) + "</mark>" + escaped.slice(idx + q.length);
-  }
-
-  function collectPostLinksFromDom() {
-    const anchors = document.querySelectorAll('a[href*="/p/"], a[href*="/reel/"]');
-    const seen = new Set();
-    const ordered = [];
-    anchors.forEach((a) => {
-      const href = a.getAttribute("href");
-      if (!href) return;
-      const clean = new URL(href, location.origin).href.split("?")[0];
-      if (!seen.has(clean)) {
-        seen.add(clean);
-        ordered.push(clean);
-      }
-    });
-    return ordered;
-  }
-
-  function collectThumbs() {
-    const map = new Map();
-    document.querySelectorAll('a[href*="/p/"], a[href*="/reel/"]').forEach((a) => {
-      const href = new URL(a.getAttribute("href"), location.origin).href.split("?")[0];
-      const img = a.querySelector("img");
-      if (img && img.src && !map.has(href)) map.set(href, img.src);
-    });
-    return map;
   }
 
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
@@ -279,12 +254,26 @@
   }
 
   async function autoScrollUntil(targetCount, maxRounds = 4000) {
-    let links = collectPostLinksFromDom();
-    let stableRounds = 0;
-    let lastCount = links.length;
+    const collected = new Map(); // href -> thumb, accumulated across rounds (Instagram virtualizes the grid, unmounting older posts as you scroll)
 
-    for (let i = 0; i < maxRounds && stableRounds < 5; i++) {
-      if (targetCount !== Infinity && links.length >= targetCount) break;
+    function scanCurrentPosts() {
+      document.querySelectorAll('a[href*="/p/"], a[href*="/reel/"]').forEach((a) => {
+        const href = a.getAttribute("href");
+        if (!href) return;
+        const clean = new URL(href, location.origin).href.split("?")[0];
+        if (!collected.has(clean)) {
+          const img = a.querySelector("img");
+          collected.set(clean, img && img.src ? img.src : "");
+        }
+      });
+    }
+
+    scanCurrentPosts();
+    let stableRounds = 0;
+    let lastCount = collected.size;
+
+    for (let i = 0; i < maxRounds && stableRounds < 6; i++) {
+      if (targetCount !== Infinity && collected.size >= targetCount) break;
 
       const anchors = document.querySelectorAll('a[href*="/p/"], a[href*="/reel/"]');
       const lastAnchor = anchors[anchors.length - 1];
@@ -294,12 +283,12 @@
       document.body.scrollTop = document.body.scrollHeight;
 
       await sleep(900);
-      links = collectPostLinksFromDom();
-      if (links.length === lastCount) stableRounds++; else stableRounds = 0;
-      lastCount = links.length;
-      window.fndSetStatus && window.fndSetStatus(`Scrolling… found ${links.length} posts`);
+      scanCurrentPosts();
+      if (collected.size === lastCount) stableRounds++; else stableRounds = 0;
+      lastCount = collected.size;
+      window.fndSetStatus && window.fndSetStatus(`Scrolling… found ${collected.size} posts`);
     }
-    return links;
+    return collected; // Map href -> thumb
   }
 
   function decodeEntities(str) {
@@ -311,16 +300,10 @@
   function extractPostData(html) {
     const data = { caption: "", isVideo: false, viewCount: 0, likeCount: 0, commentCount: 0, timestamp: 0 };
 
+    // Legacy embedded JSON — Instagram mostly no longer serves this in the
+    // plain fetched HTML, but keep it as a first try in case it reappears.
     const tsMatch = html.match(/"taken_at_timestamp":(\d+)/) || html.match(/"taken_at":(\d+)/);
-    if (tsMatch) {
-      data.timestamp = parseInt(tsMatch[1], 10) * 1000;
-    } else {
-      const timeTagMatch = html.match(/<time[^>]+datetime="([^"]+)"/);
-      if (timeTagMatch) {
-        const parsed = Date.parse(timeTagMatch[1]);
-        if (!isNaN(parsed)) data.timestamp = parsed;
-      }
-    }
+    if (tsMatch) data.timestamp = parseInt(tsMatch[1], 10) * 1000;
 
     const viewMatch = html.match(/"video_view_count":(\d+)/) || html.match(/"play_count":(\d+)/);
     if (viewMatch) { data.isVideo = true; data.viewCount = parseInt(viewMatch[1], 10); }
@@ -332,6 +315,9 @@
     const commentJsonMatch = html.match(/"edge_media_to_comment":\{"count":(\d+)/) || html.match(/"edge_media_to_parent_comment":\{"count":(\d+)/);
     if (commentJsonMatch) data.commentCount = parseInt(commentJsonMatch[1], 10);
 
+    // Primary source: og:description. Current format is typically
+    // "N likes, N comments - username on Month DD, YYYY: "caption""
+    // (caption part is omitted entirely when the post has no caption).
     const metaMatch = html.match(/<meta property="og:description" content="([^"]*)"/);
     if (metaMatch) {
       const content = decodeEntities(metaMatch[1]);
@@ -348,16 +334,28 @@
         const m = content.match(/^([\d,.]+[KMk]?)\s+views?/);
         if (m) { data.isVideo = true; data.viewCount = parseLooseCount(m[1]); }
       }
+      if (!data.timestamp) {
+        const m = content.match(/on ([A-Za-z]+ \d{1,2}, \d{4})/);
+        if (m) {
+          const parsed = Date.parse(m[1]);
+          if (!isNaN(parsed)) data.timestamp = parsed;
+        }
+      }
 
-      const colonIdx = content.indexOf(': "');
-      if (colonIdx !== -1) {
-        let caption = content.slice(colonIdx + 3);
-        if (caption.endsWith('"')) caption = caption.slice(0, -1);
-        data.caption = caption;
-      } else {
-        data.caption = content;
+      // Caption is whatever's inside the final quoted section, if present.
+      const capMatch = content.match(/:\s*"([\s\S]*)"\s*$/);
+      data.caption = capMatch ? capMatch[1] : "";
+    }
+
+    // Fallback: <time datetime="..."> tag, in case it's ever present.
+    if (!data.timestamp) {
+      const timeTagMatch = html.match(/<time[^>]+datetime="([^"]+)"/);
+      if (timeTagMatch) {
+        const parsed = Date.parse(timeTagMatch[1]);
+        if (!isNaN(parsed)) data.timestamp = parsed;
       }
     }
+
     return data;
   }
 
@@ -372,30 +370,18 @@
     }
   }
 
-  async function startIndexing(countValue, force) {
+  async function startIndexing(countValue) {
     const username = currentUsername;
     if (!username) return;
     const target = countValue === "all" ? Infinity : parseInt(countValue, 10);
     indexing = true;
     window.fndSetRunEnabled && window.fndSetRunEnabled(false, "Working…");
 
-    const cacheKey = storageKey(username, countValue);
-    if (!force) {
-      const stored = await chrome.storage.local.get(cacheKey);
-      const cached = stored[cacheKey];
-      if (cached && cached.items && cached.items.length) {
-        items = cached.items;
-        followerCount = cached.followerCount || 0;
-        finishIndexing();
-        return;
-      }
-    }
-
     followerCount = readFollowerCount();
     window.fndSetStatus && window.fndSetStatus("Scrolling to load posts…");
-    const links = await autoScrollUntil(target);
-    const capped = target === Infinity ? links : links.slice(0, target);
-    const thumbs = collectThumbs();
+    const collected = await autoScrollUntil(target); // Map href -> thumb, in-memory only
+    const allLinks = Array.from(collected.keys());
+    const capped = target === Infinity ? allLinks : allLinks.slice(0, target);
 
     const fetched = [];
     const concurrency = 4;
@@ -404,16 +390,16 @@
       const batch = capped.slice(i, i + concurrency);
       const dataList = await Promise.all(batch.map((href) => fetchPostData(href)));
       batch.forEach((href, j) => {
-        const d = dataList[j];
-        fetched.push({ href, thumb: thumbs.get(href) || "", ...d });
+        fetched.push({ href, thumb: collected.get(href) || "", ...dataList[j] });
       });
       done += batch.length;
       window.fndSetStatus && window.fndSetStatus(`Fetching post data… ${done}/${capped.length}`);
       await sleep(250);
     }
 
+    // Held only in this JS variable — nothing written to disk, nothing
+    // persisted. Reload the page or navigate away and it's gone.
     items = fetched;
-    await chrome.storage.local.set({ [cacheKey]: { items, followerCount, cachedAt: Date.now() } });
     finishIndexing();
   }
 
