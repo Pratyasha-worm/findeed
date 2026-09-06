@@ -11,6 +11,7 @@
     { key: "views", label: "Views" },
     { key: "comments", label: "Comments" },
     { key: "engagement", label: "Engagement" },
+    { key: "caption", label: "Caption (A-Z)" },
   ];
 
   let currentUsername = null;
@@ -176,6 +177,7 @@
       case "views": return arr.sort((a, b) => b.viewCount - a.viewCount);
       case "comments": return arr.sort((a, b) => b.commentCount - a.commentCount);
       case "engagement": return arr.sort((a, b) => engagementRate(b) - engagementRate(a));
+      case "caption": return arr.sort((a, b) => a.caption.localeCompare(b.caption));
       case "date":
       default: return arr.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     }
@@ -206,9 +208,9 @@
       metricParts.push(`${formatCount(item.commentCount)} comments`);
       if (followerCount) metricParts.push(`${engagementRate(item).toFixed(1)}% eng.`);
       wrap.appendChild(el("div", { class: "fnd-result-metric", text: metricParts.join(" · ") }));
-      if (q) {
+      if (q || sortMode === "caption") {
         const textEl = el("div", { class: "fnd-result-text" });
-        textEl.innerHTML = highlight(item.caption, q);
+        textEl.innerHTML = q ? highlight(item.caption, q) : escapeHtml(item.caption);
         wrap.appendChild(textEl);
       }
       a.appendChild(img);
