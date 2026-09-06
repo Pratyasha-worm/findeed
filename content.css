@@ -94,37 +94,6 @@
   color: #fff;
 }
 
-#fnd-date-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-#fnd-date-row input[type="date"] {
-  font-size: 11px;
-  padding: 4px 6px;
-  border-radius: 6px;
-  border: 1px solid #dbdbdb;
-  flex: 1;
-  min-width: 0;
-}
-
-.fnd-date-sep {
-  font-size: 11px;
-  color: #737373;
-}
-
-#fnd-date-reset {
-  font-size: 10px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  border: 1px solid #dbdbdb;
-  background: #fafafa;
-  color: #737373;
-  cursor: pointer;
-}
-
 #fnd-run-btn {
   width: 100%;
   padding: 8px;
