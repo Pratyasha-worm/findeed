@@ -18,6 +18,8 @@
   let sortMode = "date";
   let followerCount = 0;
   let indexing = false;
+  let dateFrom = null;          // ms epoch, inclusive
+  let dateTo = null;            // ms epoch, inclusive
 
   const PROFILE_SUBPATHS = new Set(["reels", "tagged", "saved", "channel"]);
 
@@ -81,6 +83,36 @@
     });
     header.appendChild(sortRow);
 
+    const dateRow = el("div", { id: "fnd-date-row" });
+    dateRow.appendChild(el("span", { class: "fnd-label", text: "Date range" }));
+    const dateFromInput = el("input", { id: "fnd-date-from", type: "date" });
+    const dateToInput = el("input", { id: "fnd-date-to", type: "date" });
+    const dateReset = el("button", { id: "fnd-date-reset", text: "Reset", type: "button" });
+    dateRow.appendChild(dateFromInput);
+    dateRow.appendChild(el("span", { class: "fnd-date-sep", text: "–" }));
+    dateRow.appendChild(dateToInput);
+    dateRow.appendChild(dateReset);
+    header.appendChild(dateRow);
+
+    dateFromInput.addEventListener("change", () => {
+      dateFrom = dateFromInput.value ? new Date(dateFromInput.value + "T00:00:00").getTime() : null;
+      renderResults(search.value);
+    });
+    dateToInput.addEventListener("change", () => {
+      dateTo = dateToInput.value ? new Date(dateToInput.value + "T23:59:59").getTime() : null;
+      renderResults(search.value);
+    });
+    dateReset.addEventListener("click", () => {
+      dateFrom = null;
+      dateTo = null;
+      dateFromInput.value = window.fndFullRangeFrom || "";
+      dateToInput.value = window.fndFullRangeTo || "";
+      renderResults(search.value);
+    });
+
+    window.fndDateFromEl = dateFromInput;
+    window.fndDateToEl = dateToInput;
+
     const runBtn = el("button", { id: "fnd-run-btn", text: "Fetch & sort" });
     header.appendChild(runBtn);
 
@@ -131,15 +163,22 @@
     return ((item.likeCount + item.commentCount) / denom) * 100;
   }
 
+  function inDateRange(item) {
+    if (!item.timestamp) return true; // don't hide undated items if extraction failed
+    if (dateFrom && item.timestamp < dateFrom) return false;
+    if (dateTo && item.timestamp > dateTo) return false;
+    return true;
+  }
+
   function sortedItems() {
-    const arr = items.slice();
+    const arr = items.filter(inDateRange);
     switch (sortMode) {
       case "likes": return arr.sort((a, b) => b.likeCount - a.likeCount);
       case "views": return arr.sort((a, b) => b.viewCount - a.viewCount);
       case "comments": return arr.sort((a, b) => b.commentCount - a.commentCount);
       case "engagement": return arr.sort((a, b) => engagementRate(b) - engagementRate(a));
       case "date":
-      default: return arr; // already newest-first from scroll order
+      default: return arr.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     }
   }
 
@@ -162,6 +201,7 @@
       const img = el("img", { src: item.thumb || "", alt: "" });
       const wrap = el("div", { class: "fnd-result-text-wrap" });
       const metricParts = [];
+      if (item.timestamp) metricParts.push(new Date(item.timestamp).toLocaleDateString());
       if (item.isVideo) metricParts.push(`${formatCount(item.viewCount)} views`);
       metricParts.push(`${formatCount(item.likeCount)} likes`);
       metricParts.push(`${formatCount(item.commentCount)} comments`);
@@ -269,7 +309,18 @@
   }
 
   function extractPostData(html) {
-    const data = { caption: "", isVideo: false, viewCount: 0, likeCount: 0, commentCount: 0 };
+    const data = { caption: "", isVideo: false, viewCount: 0, likeCount: 0, commentCount: 0, timestamp: 0 };
+
+    const tsMatch = html.match(/"taken_at_timestamp":(\d+)/) || html.match(/"taken_at":(\d+)/);
+    if (tsMatch) {
+      data.timestamp = parseInt(tsMatch[1], 10) * 1000;
+    } else {
+      const timeTagMatch = html.match(/<time[^>]+datetime="([^"]+)"/);
+      if (timeTagMatch) {
+        const parsed = Date.parse(timeTagMatch[1]);
+        if (!isNaN(parsed)) data.timestamp = parsed;
+      }
+    }
 
     const viewMatch = html.match(/"video_view_count":(\d+)/) || html.match(/"play_count":(\d+)/);
     if (viewMatch) { data.isVideo = true; data.viewCount = parseInt(viewMatch[1], 10); }
@@ -313,11 +364,11 @@
   async function fetchPostData(href) {
     try {
       const res = await fetch(href, { credentials: "include" });
-      if (!res.ok) return { caption: "", isVideo: false, viewCount: 0, likeCount: 0, commentCount: 0 };
+      if (!res.ok) return { caption: "", isVideo: false, viewCount: 0, likeCount: 0, commentCount: 0, timestamp: 0 };
       const html = await res.text();
       return extractPostData(html);
     } catch (e) {
-      return { caption: "", isVideo: false, viewCount: 0, likeCount: 0, commentCount: 0 };
+      return { caption: "", isVideo: false, viewCount: 0, likeCount: 0, commentCount: 0, timestamp: 0 };
     }
   }
 
@@ -366,7 +417,31 @@
     finishIndexing();
   }
 
+  function toDateInputValue(ms) {
+    const d = new Date(ms);
+    return d.toISOString().slice(0, 10);
+  }
+
   function finishIndexing() {
+    const dated = items.filter((it) => it.timestamp);
+    if (dated.length) {
+      const minTs = Math.min(...dated.map((it) => it.timestamp));
+      const maxTs = Math.max(...dated.map((it) => it.timestamp));
+      window.fndFullRangeFrom = toDateInputValue(minTs);
+      window.fndFullRangeTo = toDateInputValue(maxTs);
+      if (window.fndDateFromEl) {
+        window.fndDateFromEl.min = window.fndFullRangeFrom;
+        window.fndDateFromEl.max = window.fndFullRangeTo;
+        window.fndDateFromEl.value = window.fndFullRangeFrom;
+      }
+      if (window.fndDateToEl) {
+        window.fndDateToEl.min = window.fndFullRangeFrom;
+        window.fndDateToEl.max = window.fndFullRangeTo;
+        window.fndDateToEl.value = window.fndFullRangeTo;
+      }
+      dateFrom = minTs;
+      dateTo = maxTs;
+    }
     window.fndSetStatus && window.fndSetStatus(`${items.length} posts loaded${followerCount ? ` · ${formatCount(followerCount)} followers` : ""}`);
     window.fndSetRunEnabled && window.fndSetRunEnabled(true, "Re-fetch & sort");
     indexing = false;
@@ -387,6 +462,8 @@
     items = [];
     sortMode = "date";
     followerCount = 0;
+    dateFrom = null;
+    dateTo = null;
     buildUI();
     document.querySelectorAll(".fnd-sort-btn").forEach((b) => {
       b.classList.toggle("fnd-sort-active", b.getAttribute("data-sort") === "date");
