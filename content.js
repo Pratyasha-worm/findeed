@@ -19,8 +19,6 @@
   let sortMode = "date";
   let followerCount = 0;
   let indexing = false;
-  let dateFrom = null;          // ms epoch, inclusive
-  let dateTo = null;            // ms epoch, inclusive
 
   const PROFILE_SUBPATHS = new Set(["reels", "tagged", "saved", "channel"]);
 
@@ -82,36 +80,6 @@
       sortRow.appendChild(btn);
     });
     header.appendChild(sortRow);
-
-    const dateRow = el("div", { id: "fnd-date-row" });
-    dateRow.appendChild(el("span", { class: "fnd-label", text: "Date range" }));
-    const dateFromInput = el("input", { id: "fnd-date-from", type: "date" });
-    const dateToInput = el("input", { id: "fnd-date-to", type: "date" });
-    const dateReset = el("button", { id: "fnd-date-reset", text: "Reset", type: "button" });
-    dateRow.appendChild(dateFromInput);
-    dateRow.appendChild(el("span", { class: "fnd-date-sep", text: "–" }));
-    dateRow.appendChild(dateToInput);
-    dateRow.appendChild(dateReset);
-    header.appendChild(dateRow);
-
-    dateFromInput.addEventListener("change", () => {
-      dateFrom = dateFromInput.value ? new Date(dateFromInput.value + "T00:00:00").getTime() : null;
-      renderResults(search.value);
-    });
-    dateToInput.addEventListener("change", () => {
-      dateTo = dateToInput.value ? new Date(dateToInput.value + "T23:59:59").getTime() : null;
-      renderResults(search.value);
-    });
-    dateReset.addEventListener("click", () => {
-      dateFrom = null;
-      dateTo = null;
-      dateFromInput.value = window.fndFullRangeFrom || "";
-      dateToInput.value = window.fndFullRangeTo || "";
-      renderResults(search.value);
-    });
-
-    window.fndDateFromEl = dateFromInput;
-    window.fndDateToEl = dateToInput;
 
     const runBtn = el("button", { id: "fnd-run-btn", text: "Fetch & sort" });
     header.appendChild(runBtn);
@@ -185,15 +153,8 @@
     return ((item.likeCount + item.commentCount) / denom) * 100;
   }
 
-  function inDateRange(item) {
-    if (!item.timestamp) return true; // don't hide undated items if extraction failed
-    if (dateFrom && item.timestamp < dateFrom) return false;
-    if (dateTo && item.timestamp > dateTo) return false;
-    return true;
-  }
-
   function sortedItems() {
-    const arr = items.filter(inDateRange);
+    const arr = items.slice();
     switch (sortMode) {
       case "likes": return arr.sort((a, b) => b.likeCount - a.likeCount);
       case "views": return arr.sort((a, b) => b.viewCount - a.viewCount);
@@ -472,31 +433,7 @@
     finishIndexing();
   }
 
-  function toDateInputValue(ms) {
-    const d = new Date(ms);
-    return d.toISOString().slice(0, 10);
-  }
-
   function finishIndexing() {
-    const dated = items.filter((it) => it.timestamp);
-    if (dated.length) {
-      const minTs = Math.min(...dated.map((it) => it.timestamp));
-      const maxTs = Math.max(...dated.map((it) => it.timestamp));
-      window.fndFullRangeFrom = toDateInputValue(minTs);
-      window.fndFullRangeTo = toDateInputValue(maxTs);
-      if (window.fndDateFromEl) {
-        window.fndDateFromEl.min = window.fndFullRangeFrom;
-        window.fndDateFromEl.max = window.fndFullRangeTo;
-        window.fndDateFromEl.value = window.fndFullRangeFrom;
-      }
-      if (window.fndDateToEl) {
-        window.fndDateToEl.min = window.fndFullRangeFrom;
-        window.fndDateToEl.max = window.fndFullRangeTo;
-        window.fndDateToEl.value = window.fndFullRangeTo;
-      }
-      dateFrom = minTs;
-      dateTo = maxTs;
-    }
     const failedCount = items.filter((it) => it.degraded).length;
     window.fndSetStatus && window.fndSetStatus(
       `${items.length} posts loaded${followerCount ? ` · ${formatCount(followerCount)} followers` : ""}` +
@@ -521,8 +458,6 @@
     items = [];
     sortMode = "date";
     followerCount = 0;
-    dateFrom = null;
-    dateTo = null;
     buildUI();
     document.querySelectorAll(".fnd-sort-btn").forEach((b) => {
       b.classList.toggle("fnd-sort-active", b.getAttribute("data-sort") === "date");
