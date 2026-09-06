@@ -116,6 +116,28 @@
     const runBtn = el("button", { id: "fnd-run-btn", text: "Fetch & sort" });
     header.appendChild(runBtn);
 
+    const debugBtn = el("button", { id: "fnd-debug-btn", type: "button", text: "🐞 Copy sample post HTML (debug caption issue)" });
+    header.appendChild(debugBtn);
+    debugBtn.addEventListener("click", async () => {
+      debugBtn.disabled = true;
+      debugBtn.textContent = "Fetching sample…";
+      try {
+        const anchor = document.querySelector('a[href*="/p/"], a[href*="/reel/"]');
+        if (!anchor) throw new Error("no post found on page — scroll the grid into view first");
+        const href = new URL(anchor.getAttribute("href"), location.origin).href.split("?")[0];
+        const res = await fetch(href, { credentials: "include" });
+        const html = await res.text();
+        await navigator.clipboard.writeText(html.slice(0, 20000));
+        debugBtn.textContent = "Copied! Paste it in chat";
+      } catch (e) {
+        debugBtn.textContent = "Failed — try again";
+      }
+      setTimeout(() => {
+        debugBtn.disabled = false;
+        debugBtn.textContent = "🐞 Copy sample post HTML (debug caption issue)";
+      }, 3000);
+    });
+
     const search = el("input", {
       id: "fnd-search",
       type: "text",
@@ -347,6 +369,14 @@
       // Caption is whatever's inside the final quoted section, if present.
       const capMatch = content.match(/:\s*"([\s\S]*)"\s*$/);
       data.caption = capMatch ? capMatch[1] : "";
+    }
+
+    // Legacy caption JSON (rarely present anymore, but free to try).
+    if (!data.caption) {
+      const capJsonMatch = html.match(/"edge_media_to_caption":\{"edges":\[\{"node":\{"text":"((?:[^"\\]|\\.)*)"/);
+      if (capJsonMatch) {
+        try { data.caption = JSON.parse(`"${capJsonMatch[1]}"`); } catch (e) { /* leave empty */ }
+      }
     }
 
     // Fallback: <time datetime="..."> tag, in case it's ever present.
