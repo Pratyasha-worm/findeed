@@ -366,8 +366,10 @@
         }
       }
 
-      // Caption is whatever's inside the final quoted section, if present.
-      const capMatch = content.match(/:\s*"([\s\S]*)"\s*$/);
+      // Caption is whatever's inside the final quoted section. Instagram
+      // appends a trailing ". " after the closing quote, so match up to the
+      // LAST quote in the string rather than requiring it to be at the very end.
+      const capMatch = content.match(/:\s*"([\s\S]*)"[^"]*$/);
       data.caption = capMatch ? capMatch[1] : "";
     }
 
