@@ -225,10 +225,14 @@
       const wrap = el("div", { class: "fnd-result-text-wrap" });
       const metricParts = [];
       if (item.timestamp) metricParts.push(new Date(item.timestamp).toLocaleDateString());
-      if (item.isVideo) metricParts.push(`${formatCount(item.viewCount)} views`);
-      metricParts.push(`${formatCount(item.likeCount)} likes`);
-      metricParts.push(`${formatCount(item.commentCount)} comments`);
-      if (followerCount) metricParts.push(`${engagementRate(item).toFixed(1)}% eng.`);
+      if (item.degraded) {
+        metricParts.push("⚠️ Instagram throttled this — data unavailable");
+      } else {
+        if (item.isVideo) metricParts.push(`${formatCount(item.viewCount)} views`);
+        metricParts.push(`${formatCount(item.likeCount)} likes`);
+        metricParts.push(`${formatCount(item.commentCount)} comments`);
+        if (followerCount) metricParts.push(`${engagementRate(item).toFixed(1)}% eng.`);
+      }
       wrap.appendChild(el("div", { class: "fnd-result-metric", text: metricParts.join(" · ") }));
       if (q || sortMode === "caption") {
         const textEl = el("div", { class: "fnd-result-text" });
@@ -393,14 +397,27 @@
     return data;
   }
 
-  async function fetchPostData(href) {
+  function looksDegraded(html) {
+    // Instagram sometimes serves a stripped response with no stats at all —
+    // just "username on Date" — when it's throttling rapid requests.
+    const metaMatch = html.match(/<meta property="og:description" content="([^"]*)"/);
+    if (!metaMatch) return true;
+    const content = decodeEntities(metaMatch[1]);
+    return !/\d[\d,.]*[KMk]?\s*(likes?|views?)/i.test(content);
+  }
+
+  async function fetchPostData(href, attempt = 0) {
     try {
       const res = await fetch(href, { credentials: "include" });
-      if (!res.ok) return { caption: "", isVideo: false, viewCount: 0, likeCount: 0, commentCount: 0, timestamp: 0 };
+      if (!res.ok) return { caption: "", isVideo: false, viewCount: 0, likeCount: 0, commentCount: 0, timestamp: 0, degraded: true };
       const html = await res.text();
-      return extractPostData(html);
+      if (looksDegraded(html) && attempt < 3) {
+        await sleep(800 * (attempt + 1)); // backoff: 800ms, 1600ms, 2400ms
+        return fetchPostData(href, attempt + 1);
+      }
+      return { ...extractPostData(html), degraded: looksDegraded(html) };
     } catch (e) {
-      return { caption: "", isVideo: false, viewCount: 0, likeCount: 0, commentCount: 0, timestamp: 0 };
+      return { caption: "", isVideo: false, viewCount: 0, likeCount: 0, commentCount: 0, timestamp: 0, degraded: true };
     }
   }
 
@@ -418,7 +435,7 @@
     const capped = target === Infinity ? allLinks : allLinks.slice(0, target);
 
     const fetched = [];
-    const concurrency = 4;
+    const concurrency = 2;
     let done = 0;
     for (let i = 0; i < capped.length; i += concurrency) {
       const batch = capped.slice(i, i + concurrency);
@@ -428,12 +445,27 @@
       });
       done += batch.length;
       window.fndSetStatus && window.fndSetStatus(`Fetching post data… ${done}/${capped.length}`);
-      await sleep(250);
+      await sleep(500);
     }
 
     // Held only in this JS variable — nothing written to disk, nothing
     // persisted. Reload the page or navigate away and it's gone.
     items = fetched;
+
+    // Second-chance pass: anything still degraded after 3 retries gets one
+    // more shot once everything else is done and Instagram's had time to
+    // cool down, instead of silently showing fake zeros.
+    const stillDegraded = items.filter((it) => it.degraded);
+    if (stillDegraded.length) {
+      window.fndSetStatus && window.fndSetStatus(`Retrying ${stillDegraded.length} throttled post(s) after cooldown…`);
+      await sleep(6000);
+      for (const it of stillDegraded) {
+        const retried = await fetchPostData(it.href);
+        if (!retried.degraded) Object.assign(it, retried);
+        await sleep(700);
+      }
+    }
+
     finishIndexing();
   }
 
@@ -462,7 +494,11 @@
       dateFrom = minTs;
       dateTo = maxTs;
     }
-    window.fndSetStatus && window.fndSetStatus(`${items.length} posts loaded${followerCount ? ` · ${formatCount(followerCount)} followers` : ""}`);
+    const failedCount = items.filter((it) => it.degraded).length;
+    window.fndSetStatus && window.fndSetStatus(
+      `${items.length} posts loaded${followerCount ? ` · ${formatCount(followerCount)} followers` : ""}` +
+      (failedCount ? ` · ⚠️ ${failedCount} throttled by Instagram (try Re-fetch later)` : "")
+    );
     window.fndSetRunEnabled && window.fndSetRunEnabled(true, "Re-fetch & sort");
     indexing = false;
     renderResults(window.fndSearchEl ? window.fndSearchEl.value : "");
