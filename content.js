@@ -320,9 +320,12 @@
   }
 
   function decodeEntities(str) {
-    return str
-      .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-      .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+    // Use the browser's own HTML parser instead of a manual entity list —
+    // handles named entities (&amp;) AND numeric ones (&#x2019;, &#064;,
+    // &#x1f4ac; emoji, etc.), which real captions are full of.
+    const ta = document.createElement("textarea");
+    ta.innerHTML = str;
+    return ta.value;
   }
 
   function extractPostData(html) {
