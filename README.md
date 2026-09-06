@@ -4,6 +4,7 @@
 
 To add #2: go to your repo → click on README.md → click the pencil (✏️) icon to edit → paste that line right after the # Findeed title → scroll down → click Commit changes.
 
+
 A Chrome extension that adds a floating panel to any Instagram profile you're viewing: pick how many recent posts to look at, sort them by likes / views / comments / engagement, and search the captions of whatever you're looking at.
 
 Inspired by tools like Zetrr and [RostyslavDzhohola/free-sort-feed-extension](https://github.com/RostyslavDzhohola/free-sort-feed-extension) (a Reels-outlier finder) — this one focuses on caption search across a sortable post list rather than just outlier detection.
@@ -12,10 +13,11 @@ Inspired by tools like Zetrr and [RostyslavDzhohola/free-sort-feed-extension](ht
 1. Open any Instagram profile.
 2. Click the 🔎 button, bottom-right.
 3. Pick how many posts to scan (25 / 50 / 100 / 200 / 500 / 1K / 2K / All).
-4. Click **Fetch & sort** — it scrolls the profile to load that many posts, then fetches each post's page to read its caption, like count, comment count, and view count (for videos/Reels).
+4. Click **Fetch & sort** — it scrolls the profile to load that many posts, then fetches each post's page to read its caption, like count, comment count, view count (for videos/Reels), and post date.
 5. Use the sort buttons (Date / Likes / Views / Comments / Engagement) to reorder the results instantly — no re-fetching needed, it just re-sorts what's already loaded.
-6. Type in the search box to filter the current sorted list by caption keyword.
-7. Click any result to open that post in a new tab.
+6. Use the **date range** pickers to narrow results to a specific window (auto-filled with the earliest/latest dates found in what you loaded — widen the "Posts to scan" count first if you need an older date in range).
+7. Type in the search box to filter the current sorted, date-filtered list by caption keyword.
+8. Click any result to open that post in a new tab.
 
 Results are cached per profile *and* per selected count in `chrome.storage.local`, so re-opening the same "Latest 100" view is instant. Click **Re-fetch & sort** to force a fresh scan (e.g. if the profile has new posts).
 
@@ -32,6 +34,7 @@ Results are cached per profile *and* per selected count in `chrome.storage.local
 - **Engagement**: `(likes + comments) / followers x 100`. Follower count is read from the profile page itself; if it can't be found, views (for videos) are used as the denominator instead.
 
 ## Notes and limitations
+- **Date range is bounded by what's scanned**: the date pickers only cover the posts actually loaded under "Posts to scan." If you want the true full history range, pick "All items" so it scans the whole profile first.
 - **Speed**: fetching happens in small batches (4 at a time, short delay between batches) to avoid hammering Instagram. Larger counts (500+, "All") take proportionally longer the first time; cached afterward.
 - **Public vs private**: works on any profile whose posts you can already see in your browser (public profiles, or private ones you follow).
 - **Fragility**: this reads Instagram's page structure and embedded metadata, which Instagram can change at any time without notice. If counts or captions stop showing up, the extraction logic in `content.js` (`extractPostData`, `readFollowerCount`) likely needs updating to match Instagram's current markup.
